@@ -1,12 +1,10 @@
 from dotenv import dotenv_values
 
-from tqdm import tqdm
 from gpt4all import GPT4All
 
 from vector_index import setup_vector_search_index, INDEX_DEFINITION
 from utils import get_mongo_client, ingest_data, clear_data, load_data_from_pdf
-from agent import create_agent
-from search import get_embedding
+from search import get_embedding, create_embeddings
 
 config = dotenv_values(".env")
 DATA_LOADED = True
@@ -25,34 +23,7 @@ if not DATA_LOADED:
     data_src = "nrma-car-pds-spds007-1023-nsw-act-qld-tas.pdf"
     texts = load_data_from_pdf(data_src)
     ingest_data(db, texts, COLLECTION_NAME)
-
-
-def get_query_results(query):
-    query_embedding = get_embedding(query)
-    pipeline = [
-        {
-            "$vectorSearch": {
-                "index": "vector_index",
-                "queryVector": query_embedding,
-                "path": "embedding",
-                "exact": True,
-                "limit": 5,
-            }
-        },
-        {
-            "$project": {
-                "_id": 0,
-                "text": 1,
-                "metadata": 1,
-                "score": {"$meta": "vectorSearchScore"},
-            }
-        },
-    ]
-    results = collection.aggregate(pipeline)
-    array_of_results = []
-    for doc in results:
-        array_of_results.append(doc)
-    return array_of_results
+    create_embeddings(collection)
 
 
 if "vector_index" not in [
@@ -70,7 +41,7 @@ class RAG:
         :param generator: Function or class for generating responses.
         """
         self.collection = collection
-        self.generator = generator  # Stub for text generation (e.g., LLM API)
+        self.generator = generator
 
     def retrieve_documents(self, query):
         """
@@ -79,8 +50,31 @@ class RAG:
         :param query: User's input query.
         :return: List of retrieved documents.
         """
-        documents = get_query_results(query)
-        return documents  # Stub return value
+        query_embedding = get_embedding(query)
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": "vector_index",
+                    "queryVector": query_embedding,
+                    "path": "embedding",
+                    "exact": True,
+                    "limit": 5,
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "text": 1,
+                    "metadata": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+        ]
+        results = collection.aggregate(pipeline)
+        array_of_results = []
+        for doc in results:
+            array_of_results.append(doc)
+        return array_of_results
 
     def generate_response(self, query, retrieved_docs):
         """
@@ -118,24 +112,17 @@ class RAG:
 
 if __name__ == "__main__":
     # Example usage
-    # Set up RAG pipeline
     local_llm_path = "./mistral-7b-openorca.gguf2.Q4_0.gguf"
     local_llm = GPT4All(local_llm_path)
 
     rag = RAG(collection, local_llm)
     print(
         rag.answer_query(
-            "Can you recommend an NRMA insurance plan for a single mother with a young child?"
+            "Tell me the best NRMA insurance to get for a single mother with a young child."
         )
     )
 
     print("\n\n")
-    # agent = create_agent(get_query_results)
-
-    # response = agent.query(
-    #     "Can you recommend an NRMA insurance plan for a single mother with a young child?"
-    # )
-    # print(response)
 
 # Close the MongoDB connection when done
 client.close()
