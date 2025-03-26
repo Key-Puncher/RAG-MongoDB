@@ -6,14 +6,15 @@ from dotenv import dotenv_values
 from llama_index.llms.openai import OpenAI
 from llama_index.core.agent import FunctionCallingAgentWorker
 from gpt4all import GPT4All
-from llama_index.core import VectorStoreIndex
-from llama_index.core.tools import QueryEngineTool, ToolMetadata
+from llama_index.core import VectorStoreIndex, Settings
+from llama_index.core.tools import QueryEngineTool, ToolMetadata, FunctionTool
 import os
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.ollama import Ollama
 
 from utils import get_mongo_client
 
 config = dotenv_values(".env")
-OPENAI_KEY = config["OPENAI_KEY"]
 
 
 class AgenticRAG:
@@ -21,10 +22,11 @@ class AgenticRAG:
         pass
 
     def get_agent(self, client, agent_func=None):
-        OPENAI_KEY = config["OPENAI_KEY"]
-        os.environ["OPENAI_API_KEY"] = OPENAI_KEY
+        llm = Ollama(model="llama3.2", request_timeout=150.0, temperature=0.1)
+        embed_model = HuggingFaceEmbedding("mixedbread-ai/mxbai-embed-large-v1")
 
-        llm = OpenAI(model="gpt-4o", temperature=0)
+        Settings.llm = llm
+        Settings.embed_model = embed_model
 
         vector_store = MongoDBAtlasVectorSearch(
             client,
@@ -34,8 +36,7 @@ class AgenticRAG:
         )
 
         index = VectorStoreIndex.from_vector_store(vector_store)
-        query_engine = index.as_query_engine(similarity_top_k=5)  # , llm=llm)
-
+        query_engine = index.as_query_engine(similarity_top_k=5, llm=llm)
         query_engine_tool = QueryEngineTool(
             query_engine=query_engine,
             metadata=ToolMetadata(

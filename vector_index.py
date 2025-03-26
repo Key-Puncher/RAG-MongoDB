@@ -9,7 +9,9 @@ INDEX_DEFINITION = {
             "path": "embedding",
             "similarity": "cosine",
             "type": "vector",
-        }
+        },
+        # {"type": "filter", "path": "metadata"},
+        # {"type": "filter", "path": "text"},
     ]
 }
 

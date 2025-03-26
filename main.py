@@ -5,9 +5,11 @@ from gpt4all import GPT4All
 from vector_index import setup_vector_search_index, INDEX_DEFINITION
 from utils import get_mongo_client, ingest_data, clear_data, load_data_from_pdf
 from search import get_embedding, create_embeddings
+from llama_index.llms.ollama import Ollama
+from llama_index.core.base.llms.types import ChatMessage, MessageRole
+import ollama
 
 config = dotenv_values(".env")
-DATA_LOADED = True
 
 # Set up MongoDB connection
 MONGO_URI = config["MONGO_URI"]
@@ -18,11 +20,14 @@ client = get_mongo_client(MONGO_URI)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 
+DATA_LOADED = True
 # if we haven't got data loaded: ingest data into mongodb'
 if not DATA_LOADED:
-    data_src = "nrma-car-pds-spds007-1023-nsw-act-qld-tas.pdf"
-    texts = load_data_from_pdf(data_src)
-    ingest_data(db, texts, COLLECTION_NAME)
+    clear_data(collection)
+    data_src = ["nrma-car-pds-spds007-1023-nsw-act-qld-tas.pdf", "POL011BA.pdf"]
+    for src in data_src:
+        texts = load_data_from_pdf(src)
+        ingest_data(db, texts, COLLECTION_NAME)
     create_embeddings(collection)
 
 
@@ -63,7 +68,7 @@ class RAG:
             },
             {
                 "$project": {
-                    "_id": 0,
+                    "_id": 1,
                     "text": 1,
                     "metadata": 1,
                     "score": {"$meta": "vectorSearchScore"},
@@ -94,8 +99,12 @@ class RAG:
             {text_documents}
             Question: {query}
             """
-        response = self.generator.generate(prompt)
-        cleaned_response = response.replace("\\n", "\n")
+        # response = self.generator.generate(prompt)
+        # cleaned_response = response.replace("\\n", "\n")
+        response = ollama.chat(
+            model="llama3.2", messages=[{"role": "user", "content": prompt}]
+        )
+        cleaned_response = response["message"]["content"]
         return cleaned_response
 
     def answer_query(self, query):
@@ -112,8 +121,10 @@ class RAG:
 
 if __name__ == "__main__":
     # Example usage
-    local_llm_path = "./mistral-7b-openorca.gguf2.Q4_0.gguf"
-    local_llm = GPT4All(local_llm_path)
+    # local_llm_path = "./mistral-7b-openorca.gguf2.Q4_0.gguf"
+    # local_llm = GPT4All(local_llm_path)
+
+    local_llm = Ollama(model="llama3.2", request_timeout=150.0, temperature=0.1)
 
     rag = RAG(collection, local_llm)
     print(

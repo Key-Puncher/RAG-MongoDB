@@ -18,7 +18,7 @@ def create_embeddings(collection):
     filter = {
         "$and": [
             {"text": {"$exists": True, "$nin": [None, ""]}},
-            {"embeddings": {"$exists": False}},
+            {"embedding": {"$exists": False}},
         ]
     }
     updated_doc_count = 0
@@ -26,7 +26,7 @@ def create_embeddings(collection):
         text = document["text"]
         embedding = get_embedding(text)
         collection.update_one(
-            {"_id": document["_id"]}, {"$set": {"embeddings": embedding}}, upsert=True
+            {"_id": document["_id"]}, {"$set": {"embedding": embedding}}, upsert=True
         )
         updated_doc_count += 1
     print("Documents updated: {}".format(updated_doc_count))

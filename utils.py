@@ -1,3 +1,4 @@
+import uuid
 from pymongo import MongoClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
@@ -34,13 +35,18 @@ def ingest_data(db, corpus=None, corpus_collection_name=""):
 
     if corpus and corpus_collection_name:
         corpus_docs = [
-            {"text": doc.page_content, "metadata": doc.metadata} for doc in corpus
+            {
+                "_id": str(uuid.uuid4()),
+                "text": doc.page_content,
+                "metadata": doc.metadata,
+            }
+            for doc in corpus
         ]
         db[corpus_collection_name].insert_many(corpus_docs)
         print(f"Ingested {len(corpus_docs)} documents into {corpus_collection_name}")
 
 
-def clear_data(db, collection):
+def clear_data(collection):
     """Delete all data from a collection."""
 
-    db[collection].delete_many({})
+    collection.delete_many({})
