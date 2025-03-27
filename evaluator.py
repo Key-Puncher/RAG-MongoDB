@@ -69,7 +69,7 @@ class Evaluator:
         Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. 
 
         Avoid simply stating the correct answer at the outset."""
-        doc_string = "\n\n".join(doc for doc in retrieved_docs)
+        doc_string = "\n\n".join(str(doc) for doc in retrieved_docs)
         answer = f"FACTS: {doc_string}\nSTUDENT ANSWER: {output}"
         response = ollama.chat(
             model="llama3.2",
@@ -106,7 +106,7 @@ class Evaluator:
 
         Avoid simply stating the correct answer at the outset."""
 
-        doc_string = "\n\n".join(doc for doc in retrieved_docs)
+        doc_string = "\n\n".join(str(doc) for doc in retrieved_docs)
         answer = f"FACTS: {doc_string}\nQUESTION: {input}"
 
         # Run evaluator
@@ -116,9 +116,11 @@ class Evaluator:
                 {"role": "system", "content": retrieval_relevance_instructions},
                 {"role": "user", "content": answer},
             ],
-            format=GroundedGrade.model_json_schema(),
+            format=RetrievalRelevanceGrade.model_json_schema(),
         )
-        grade = GroundedGrade.model_validate_json(response.message.content, strict=True)
+        grade = RetrievalRelevanceGrade.model_validate_json(
+            response.message.content, strict=True
+        )
         return grade
 
     @staticmethod

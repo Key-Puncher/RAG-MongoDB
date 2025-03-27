@@ -111,13 +111,23 @@ if __name__ == "__main__":
     rag = AgenticRAG(client, agents=["query_engine_tool"])
     response = rag.answer_query(query)
 
+    print("\n\n")
+    input("Press enter to continue.")
+
+    print("Evaluate answer relevance:")
     grade = Evaluator.relevance(query, response)
     print(grade)
 
+    print("\n\n")
+
+    print("Evaluate answer groundedness:")
     retrieved_docs = rag.retrieve_documents(query)
     grade = Evaluator.groundedness(response, retrieved_docs)
     print(grade)
 
+    print("\n\n")
+
+    print("Evaluate retrieval relevance:")
     grade = Evaluator.retrieval_relevance(query, retrieved_docs)
     print(grade)
 

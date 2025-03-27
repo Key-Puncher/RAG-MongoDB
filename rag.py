@@ -88,25 +88,29 @@ if __name__ == "__main__":
     # Example usage
     client = get_mongo_client(MONGO_URI)
 
-    query = (
-        "Tell me the best NRMA insurance to get for a single mother with a young child."
-    )
+    query = "Tell me the best NRMA insurance to get for a single mother."
 
     rag = RAG(client)
     response = rag.answer_query(query)
     print(response)
     print("\n\n")
 
+    input("Press enter to continue.")
+
+    print("Evaluate answer relevance:")
     grade = Evaluator.relevance(query, response)
     print(grade)
 
-    grade = Evaluator.relevance("Why is the sky blue?", response)
-    print(grade)
+    print("\n\n")
 
+    print("Evaluate answer groundedness:")
     retrieved_docs = rag.retrieve_documents(query)
     grade = Evaluator.groundedness(response, retrieved_docs)
     print(grade)
 
+    print("\n\n")
+
+    print("Evaluate retrieval relevance:")
     grade = Evaluator.retrieval_relevance(query, retrieved_docs)
     print(grade)
 
