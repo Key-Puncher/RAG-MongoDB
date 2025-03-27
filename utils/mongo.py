@@ -21,7 +21,48 @@ INDEX_DEFINITION = {
 }
 
 
-def create_embeddings(collection):
+def get_mongo_client(mongo_uri):
+    """Establish and validate connection to MongoDB."""
+
+    client = MongoClient(mongo_uri)
+
+    # Validate the connection
+    ping_result = client.admin.command("ping")
+    if ping_result.get("ok") == 1.0:
+        # Connection successful
+        print("Connection to MongoDB successful")
+        return client
+    print("Connection to MongoDB failed")
+    return None
+
+
+def load_data_from_src(collection, data_src):
+    """
+    Clears data from a collection, and loads in the data from a data source.
+    It also generates embeddings for documents without them.
+
+    If a vector_index has not been created, it also creates one.
+
+    collection: a mongodb collection instance
+    data_src: a List of datasets (pdf) to load into the database
+    """
+    # Make sure we are working with a clean collection
+    _clear_data(collection)
+
+    # Load all the provided data
+    for src in data_src:
+        texts = load_data_from_pdf(src)
+        _ingest_data(collection, texts)
+    _create_embeddings(collection)
+
+    # Create a vector search index
+    if "vector_index" not in [
+        idx["name"] for idx in list(collection.list_search_indexes())
+    ]:
+        _setup_vector_search_index(collection, INDEX_DEFINITION)
+
+
+def _create_embeddings(collection):
     """
     Filters for only documents from a MongoDB collection with a summary field and without an embeddings field
     Creates embeddings for documents without them
@@ -43,22 +84,7 @@ def create_embeddings(collection):
     print("Documents updated: {}".format(updated_doc_count))
 
 
-def get_mongo_client(mongo_uri):
-    """Establish and validate connection to MongoDB."""
-
-    client = MongoClient(mongo_uri)
-
-    # Validate the connection
-    ping_result = client.admin.command("ping")
-    if ping_result.get("ok") == 1.0:
-        # Connection successful
-        print("Connection to MongoDB successful")
-        return client
-    print("Connection to MongoDB failed")
-    return None
-
-
-def ingest_data(collection, corpus=None):
+def _ingest_data(collection, corpus=None):
     """Ingest data into MongoDB collections."""
 
     if corpus:
@@ -74,13 +100,13 @@ def ingest_data(collection, corpus=None):
         print(f"Ingested {len(corpus_docs)} documents into {collection}")
 
 
-def clear_data(collection):
+def _clear_data(collection):
     """Delete all data from a collection."""
 
     collection.delete_many({})
 
 
-def setup_vector_search_index(collection, index_definition, index_name="vector_index"):
+def _setup_vector_search_index(collection, index_definition, index_name="vector_index"):
     """
     Setup a vector search index for a MongoDB collection.
 
@@ -106,26 +132,3 @@ def setup_vector_search_index(collection, index_definition, index_name="vector_i
             break
         time.sleep(5)
     print(result + " is ready for querying.")
-
-
-def load_data_from_src(collection, data_src):
-    """
-    Clears data from a collection, and loads in the data from a data source.
-    It also generates embeddings for documents without them.
-
-    If a vector_index has not been created, it also creates one.
-
-    collection: a mongodb collection instance
-    data_src: a List of datasets (pdf) to load into the database
-    """
-    clear_data(collection)
-
-    for src in data_src:
-        texts = load_data_from_pdf(src)
-        ingest_data(collection, texts)
-    create_embeddings(collection)
-
-    if "vector_index" not in [
-        idx["name"] for idx in list(collection.list_search_indexes())
-    ]:
-        setup_vector_search_index(collection, INDEX_DEFINITION)
