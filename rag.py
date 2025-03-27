@@ -1,52 +1,18 @@
-from dotenv import dotenv_values
-
-from gpt4all import GPT4All
-
-from vector_index import setup_vector_search_index, INDEX_DEFINITION
-from utils import get_mongo_client, ingest_data, clear_data, load_data_from_pdf
-from search import get_embedding, create_embeddings
-from llama_index.llms.ollama import Ollama
-from llama_index.core.base.llms.types import ChatMessage, MessageRole
 import ollama
 
-config = dotenv_values(".env")
-
-# Set up MongoDB connection
-MONGO_URI = config["MONGO_URI"]
-DB_NAME = "RAG_DEMO"
-COLLECTION_NAME = "NRMA_PDF"
-
-client = get_mongo_client(MONGO_URI)
-db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
-
-DATA_LOADED = True
-# if we haven't got data loaded: ingest data into mongodb'
-if not DATA_LOADED:
-    clear_data(collection)
-    data_src = ["nrma-car-pds-spds007-1023-nsw-act-qld-tas.pdf", "POL011BA.pdf"]
-    for src in data_src:
-        texts = load_data_from_pdf(src)
-        ingest_data(db, texts, COLLECTION_NAME)
-    create_embeddings(collection)
-
-
-if "vector_index" not in [
-    idx["name"] for idx in list(collection.list_search_indexes())
-]:
-    setup_vector_search_index(db[COLLECTION_NAME], INDEX_DEFINITION)
+from utils.common import get_embedding, MONGO_URI, DB_NAME, COLLECTION_NAME
+from utils.mongo import get_mongo_client
+from evaluator import Evaluator
 
 
 class RAG:
-    def __init__(self, collection=None, generator=None):
+    def __init__(self, client):
         """
         Initialize the RAG system with a retriever and a generator.
 
-        :param retriever: Function or class for retrieving relevant documents.
-        :param generator: Function or class for generating responses.
+        :param client: A connection to a MongoDB instance.
         """
-        self.collection = collection
-        self.generator = generator
+        self.collection = client[DB_NAME][COLLECTION_NAME]
 
     def retrieve_documents(self, query):
         """
@@ -75,7 +41,7 @@ class RAG:
                 }
             },
         ]
-        results = collection.aggregate(pipeline)
+        results = self.collection.aggregate(pipeline)
         array_of_results = []
         for doc in results:
             array_of_results.append(doc)
@@ -99,8 +65,7 @@ class RAG:
             {text_documents}
             Question: {query}
             """
-        # response = self.generator.generate(prompt)
-        # cleaned_response = response.replace("\\n", "\n")
+
         response = ollama.chat(
             model="llama3.2", messages=[{"role": "user", "content": prompt}]
         )
@@ -121,19 +86,29 @@ class RAG:
 
 if __name__ == "__main__":
     # Example usage
-    # local_llm_path = "./mistral-7b-openorca.gguf2.Q4_0.gguf"
-    # local_llm = GPT4All(local_llm_path)
+    client = get_mongo_client(MONGO_URI)
 
-    local_llm = Ollama(model="llama3.2", request_timeout=150.0, temperature=0.1)
-
-    rag = RAG(collection, local_llm)
-    print(
-        rag.answer_query(
-            "Tell me the best NRMA insurance to get for a single mother with a young child."
-        )
+    query = (
+        "Tell me the best NRMA insurance to get for a single mother with a young child."
     )
 
+    rag = RAG(client)
+    response = rag.answer_query(query)
+    print(response)
     print("\n\n")
 
-# Close the MongoDB connection when done
-client.close()
+    grade = Evaluator.relevance(query, response)
+    print(grade)
+
+    grade = Evaluator.relevance("Why is the sky blue?", response)
+    print(grade)
+
+    retrieved_docs = rag.retrieve_documents(query)
+    grade = Evaluator.groundedness(response, retrieved_docs)
+    print(grade)
+
+    grade = Evaluator.retrieval_relevance(query, retrieved_docs)
+    print(grade)
+
+    # Close the MongoDB connection when done
+    client.close()

@@ -1,41 +1,72 @@
-# from langchain_mongodb import MongoDBAtlasVectorSearch
 from llama_index.vector_stores.mongodb import MongoDBAtlasVectorSearch
-
-from main import RAG
-from dotenv import dotenv_values
-from llama_index.llms.openai import OpenAI
 from llama_index.core.agent import FunctionCallingAgentWorker
-from gpt4all import GPT4All
 from llama_index.core import VectorStoreIndex, Settings
-from llama_index.core.tools import QueryEngineTool, ToolMetadata, FunctionTool
-import os
+from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.ollama import Ollama
 
-from utils import get_mongo_client
-
-config = dotenv_values(".env")
+from utils.common import MONGO_URI, DB_NAME, COLLECTION_NAME, MODEL_PATH
+from utils.mongo import get_mongo_client
+from evaluator import Evaluator
 
 
 class AgenticRAG:
-    def __init__(self, collection=None, generator=None, agents=[]):
-        pass
+    def __init__(self, client, agents=[]):
+        """
+        Initialize the RAG system with a database connection and agents to use.
 
-    def get_agent(self, client, agent_func=None):
-        llm = Ollama(model="llama3.2", request_timeout=150.0, temperature=0.1)
-        embed_model = HuggingFaceEmbedding("mixedbread-ai/mxbai-embed-large-v1")
+        :param client: A connection to a MongoDB instance.
+        :param agents: A list of agent tools to provide to the LLM.
+        """
+        self.client = client
+        llm = Ollama(model="llama3.2", request_timeout=150.0, temperature=0)
+        embed_model = HuggingFaceEmbedding(MODEL_PATH)
 
         Settings.llm = llm
         Settings.embed_model = embed_model
+        self.agent_worker = self._get_agent_tools(llm, agents)
 
+    def _get_agent_tools(self, llm, agents):
+        """
+        Private function to initialise the tools that an agent can use.
+
+        Available agents:
+
+        query_engine_tool - agent that sends a query to a knowledge base
+        """
+        available_agents = {"query_engine_tool": self._get_query_engine_tool}
+
+        tools = []
+        for agent in agents:
+            if agent in available_agents:
+                print(f"Setting up {agent}")
+                tools.append(available_agents[agent](llm))
+            else:
+                print(f"Cannot find tool {agent}")
+        agent_worker = FunctionCallingAgentWorker.from_tools(
+            tools, llm=llm, verbose=True
+        )
+        print("Agent created.")
+        return agent_worker
+
+    def _get_vector_index(self):
+        """
+        Private function that uses a MongoDB collection as knowledge base for a query engine tool
+        """
         vector_store = MongoDBAtlasVectorSearch(
-            client,
+            self.client,
             db_name=DB_NAME,
             collection_name=COLLECTION_NAME,
             vector_index_name="vector_index",
         )
-
         index = VectorStoreIndex.from_vector_store(vector_store)
+        return index
+
+    def _get_query_engine_tool(self, llm):
+        """
+        Private function that defines a query engine tool from a provided vector index.
+        """
+        index = self._get_vector_index()
         query_engine = index.as_query_engine(similarity_top_k=5, llm=llm)
         query_engine_tool = QueryEngineTool(
             query_engine=query_engine,
@@ -47,36 +78,48 @@ class AgenticRAG:
                 ),
             ),
         )
+        return query_engine_tool
 
-        agent_worker = FunctionCallingAgentWorker.from_tools(
-            [query_engine_tool], llm=llm, verbose=True
-        )
-        agent = agent_worker.as_agent()
+    def retrieve_documents(self, query):
+        """
+        Using the query engine tool, retrieve relevant documents based on the query.
 
-        response = agent.chat(
-            "Tell me the best NRMA insurance to get for a single mother with a young child."
-        )
-        print(str(response))
+        :param query: User's input query.
+        :print: List of retrieved documents.
+        """
+        index = self._get_vector_index()
+        query_engine_test = index.as_query_engine(similarity_top_k=5)
+        response = query_engine_test.retrieve(query)
 
-        return agent
+        return [node.get_text() for node in response]
+
+    def answer_query(self, query):
+        """
+        Complete Agentic RAG pipeline: Use available tools and generate a response.
+
+        :param query: User's input query.
+        :return: Generated response text.
+        """
+        agent = self.agent_worker.as_agent()
+        return str(agent.chat(query))
 
 
 if __name__ == "__main__":
-    config = dotenv_values(".env")
-    DATA_LOADED = True
-
-    # Set up MongoDB connection
-    MONGO_URI = config["MONGO_URI"]
-
-    DB_NAME = "RAG_DEMO"
-    COLLECTION_NAME = "NRMA_PDF"
-
+    # Example Usage
     client = get_mongo_client(MONGO_URI)
-    db = client[DB_NAME]
-    collection = db[COLLECTION_NAME]
+    query = "Tell me the best NRMA insurance to get for a single mother."
+    rag = AgenticRAG(client, agents=["query_engine_tool"])
+    response = rag.answer_query(query)
 
-    local_llm_path = "./mistral-7b-openorca.gguf2.Q4_0.gguf"
-    local_llm = GPT4All(local_llm_path)
+    grade = Evaluator.relevance(query, response)
+    print(grade)
 
-    rag = AgenticRAG(collection, local_llm)
-    agent = rag.get_agent(client)
+    retrieved_docs = rag.retrieve_documents(query)
+    grade = Evaluator.groundedness(response, retrieved_docs)
+    print(grade)
+
+    grade = Evaluator.retrieval_relevance(query, retrieved_docs)
+    print(grade)
+
+    # Close the MongoDB connection when done
+    client.close()
