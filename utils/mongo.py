@@ -1,15 +1,10 @@
 import time
-from pymongo.operations import SearchIndexModel
 import uuid
+
+from pymongo.operations import SearchIndexModel
 from pymongo import MongoClient
 
-
-from gpt4all import GPT4All
-
 from utils.common import NUM_DOC_LIMIT, load_data_from_pdf, get_embedding
-from llama_index.llms.ollama import Ollama
-from llama_index.core.base.llms.types import ChatMessage, MessageRole
-import ollama
 
 
 INDEX_DEFINITION = {
@@ -27,8 +22,10 @@ INDEX_DEFINITION = {
 
 
 def create_embeddings(collection):
-    # Filters for only documents with a summary field and without an embeddings field
-    # Creates embeddings for documents without them
+    """
+    Filters for only documents from a MongoDB collection with a summary field and without an embeddings field
+    Creates embeddings for documents without them
+    """
     filter = {
         "$and": [
             {"text": {"$exists": True, "$nin": [None, ""]}},
@@ -87,7 +84,6 @@ def setup_vector_search_index(collection, index_definition, index_name="vector_i
     """
     Setup a vector search index for a MongoDB collection.
 
-    Args:
     collection: MongoDB collection object
     index_definition: Dictionary containing the index definition
     index_name: Name of the index (default: "vector_index")
@@ -113,6 +109,15 @@ def setup_vector_search_index(collection, index_definition, index_name="vector_i
 
 
 def load_data_from_src(collection, data_src):
+    """
+    Clears data from a collection, and loads in the data from a data source.
+    It also generates embeddings for documents without them.
+
+    If a vector_index has not been created, it also creates one.
+
+    collection: a mongodb collection instance
+    data_src: a List of datasets (pdf) to load into the database
+    """
     clear_data(collection)
 
     for src in data_src:
